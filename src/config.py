@@ -23,6 +23,8 @@ CLUSTER_DEFAULTS = {
         'python': sys.executable,
         'scratch': '/scratch',
         'max_cpu': 16,
+        # Job arrays: tasks running at a time when array=%N is not given (0 = no limit)
+        'array_limit': 0,
         'sbatchrc': '~/.sbatchrc',
     },
     'slurm': {

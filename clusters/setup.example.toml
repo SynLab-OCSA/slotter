@@ -25,6 +25,9 @@ scratch = "/scratch"
 max_cpu = 16
 # Personal #SBATCH options, one "#SBATCH --key=value" per line
 sbatchrc = "~/.sbatchrc"
+# Job arrays (job.py orca conf_*/opt.inp): at most this many tasks at a time,
+# unless array=%N is given on the command line; 0 = no limit
+array_limit = 0
 
 [slurm]
 # #SBATCH options written in every job (command line and .sbatchrc win)

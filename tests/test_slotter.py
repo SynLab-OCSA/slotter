@@ -524,11 +524,45 @@ def test_array_options(modulepath, workdir):
     # Outputs already there are fine with --no-check; at most 2 tasks at a time
     write_array('orca', ['c/a.inp'], '', {'array': '%2'}, array_choices(check_folder=False, qm_all=False))
     assert '#SBATCH --array=0-0%2\n' in (workdir / 'job-array.sh').read_text()
-    assert 'mkdir qm_all' not in (workdir / 'c' / 'job-slurm.sh').read_text()
+    job = (workdir / 'c' / 'job-slurm.sh').read_text()
+    assert 'mkdir qm_all' not in job
+    # Only job-array.sh is an array: the job of the calculation can be submitted by itself
+    assert '--array' not in job
     # A program writing always the same output cannot share the folder
     write_files(workdir, {'a.xyz': '', 'b.xyz': ''})
     with pytest.raises(ValueError, match='crest always writes crest.out'):
         write_array('crest', ['a.xyz', 'b.xyz'], '', {}, array_choices(same_folder=True))
+
+
+@pytest.mark.parametrize('default, slurm, array', [
+    (0, {}, '0-1'),
+    (4, {}, '0-1%4'),
+    # The command line wins over the default of the cluster
+    (4, {'array': '%2'}, '0-1%2'),
+])
+def test_tasks_at_a_time(modulepath, workdir, monkeypatch, default, slurm, array):
+    from src.job_array import write_array
+    monkeypatch.setitem(CONFIG['cluster'], 'array_limit', default)
+    write_files(workdir, {'c1/a.inp': '! PAL4\n', 'c2/a.inp': '! PAL4\n'})
+    write_array('orca', ['c1/a.inp', 'c2/a.inp'], '', slurm, array_choices())
+    assert f'#SBATCH --array={array}\n' in (workdir / 'job-array.sh').read_text()
+
+
+@pytest.mark.parametrize('default', [-1, '4', 2.5, True])
+def test_array_limit_must_be_a_whole_number(modulepath, workdir, monkeypatch, default):
+    from src.job_array import write_array
+    monkeypatch.setitem(CONFIG['cluster'], 'array_limit', default)
+    write_files(workdir, {'c1/a.inp': '! PAL4\n'})
+    with pytest.raises(ValueError, match='array_limit .* must be a whole number'):
+        write_array('orca', ['c1/a.inp'], '', {}, array_choices())
+    assert not (workdir / 'c1' / 'job-slurm.sh').exists()
+
+
+def test_array_option_without_an_array():
+    from src.job_array import no_array_option
+    no_array_option({'partition': 'long'})
+    with pytest.raises(ValueError, match='array=%2 is for job arrays'):
+        no_array_option({'array': '%2'})
 
 
 def test_same_folder_needs_the_tag_in_the_template(modulepath, workdir, monkeypatch, tmp_path):

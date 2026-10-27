@@ -13,7 +13,8 @@
 Every calculation gets its job and README.md as with job.py alone, so it can
 be submitted again by itself; job-array.sh runs, in task i, the job of
 calculation i. SLURM gives every task the same resources: the largest CPUs and
-memory among the inputs.
+memory among the inputs. array=%N, or [cluster] array_limit, limits the tasks
+running at a time.
 """
 
 import os
@@ -105,15 +106,33 @@ def split_folder(inputs, ext):
                 shutil.copy2(f, stem)
 
 
+def no_array_option(slurm_commands):
+    """array= is for job arrays: a single job with it would be refused by sbatch."""
+    if 'array' in slurm_commands:
+        raise ValueError(f'array={slurm_commands["array"]} is for job arrays, with more than one input')
+
+
+def array_limit(slurm_commands):
+    """%N of --array: array=%N of the command line, else [cluster] array_limit."""
+    limit = str(slurm_commands.get('array') or '')
+    if limit:
+        if not re.fullmatch(r'%\d+', limit):
+            raise ValueError(f'array={limit}: only the tasks at a time can be given, e.g. array=%4')
+        return limit
+    default = CONFIG['cluster']['array_limit']
+    if not isinstance(default, int) or isinstance(default, bool) or default < 0:
+        raise ValueError(f'[cluster] array_limit = {default!r}: it must be a whole number, 0 for no limit')
+    return f'%{default}' if default else ''
+
+
 def array_sbatch(calc_obj, slurm_commands, resources, n_tasks):
     """#SBATCH lines of job-array.sh: the largest resources, one task per calculation."""
     sbatch = {**CONFIG['slurm'], **slurm_commands}
     # Handled by the job of each calculation
     sbatch.pop('version', None)
     sbatch.pop('mail-user', None)
-    limit = str(sbatch.pop('array', '') or '')
-    if limit and not re.fullmatch(r'%\d+', limit):
-        raise ValueError(f'array={limit}: only the tasks at a time can be given, e.g. array=%4')
+    sbatch.pop('array', None)
+    limit = array_limit(slurm_commands)
     sbatch['ntasks'] = max(cpu for cpu, _ in resources)
     sbatch['mem'] = max(mem for _, mem in resources)
     # %j is the job of one task: %A_%a keeps their files apart
@@ -158,6 +177,8 @@ def write_array(calculation, files, options, slurm_commands, choices):
 
     here = os.getcwd()
     for (folder, name, tag), (calc_cmd, sbatch) in zip(tasks, prepared):
+        # Only job-array.sh is an array: each job must be submittable by itself
+        sbatch = {k: v for k, v in sbatch.items() if k != 'array'}
         os.chdir(folder)
         try:
             write_job_file(name, calculation, calc_cmd, sbatch, job_file=f'job-slurm{tag}.sh', tag=tag,

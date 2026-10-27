@@ -14,7 +14,7 @@ from src.write_job_file import write_job_file
 from src.initiate_readme import write_md
 from src.check import check_folder
 from src.run_interactive import interactive
-from src.job_array import is_array, write_array
+from src.job_array import is_array, no_array_option, write_array
 
 def main():
 
@@ -30,6 +30,7 @@ def main():
         job = write_array(calculation, files, options, slurm_cmd, choices)
         print("Take your time to edit the README.md of each calculation to explain its purpose")
     else:
+        no_array_option(slurm_cmd)
         input_file = files[0]
         calc_cmd, slurm_cmd = prepare(calculation, input_file, options, slurm_cmd, choices['force'])
         if choices['check_folder'] and check_folder(input_file):

@@ -178,7 +178,12 @@ submitted: task *i* runs the job of calculation *i* in its folder. Then:
 - the `.slurm` files of the tasks are in the current folder, as
   `out-<array>_<task>-<node>.slurm`;
 - each calculation sends its own email, with its outcome;
-- `array=%4` runs at most 4 tasks at a time; `scancel <array>` stops them all.
+- `array=%4` runs at most 4 tasks at a time (without it, `[cluster] array_limit`
+  of the cluster, if set; otherwise SLURM runs as many as the resources and the
+  limits of partition and QOS allow); `scancel <array>` stops them all, and
+  `scontrol update JobId=<array> ArrayTaskThrottle=2` changes the limit while
+  it runs. `array=` is refused without an array, and it is not written in the
+  job of each calculation, so that it can still be submitted by itself.
 
 Nothing is moved or written if something is wrong: an input with others in
 its folder, outputs already there (unless `--no-check`), a missing module
@@ -385,6 +390,7 @@ optional (template: [`clusters/setup.example.toml`](clusters/setup.example.toml)
 | `[cluster] python` | Python of slotter: `job.py` and the other scripts re-run themselves with it, and the jobs use it for `email_sender.py` | the running Python |
 | `[cluster] scratch` | scratch folder on the nodes | `/scratch` |
 | `[cluster] max_cpu` | max CPUs for the programs with `limit = true` (unless `--force`) | `16` |
+| `[cluster] array_limit` | tasks of a [job array](#several-calculations-job-arrays) running at a time, unless `array=%N` is given; `0` = no limit | `0` |
 | `[cluster] sbatchrc` | file with the personal SLURM options | `~/.sbatchrc` |
 | `[slurm]` | `#SBATCH` options in every job (`nodes`, `error`, `output`, ...) | `nodes = "1-1"`, ... |
 | `[email] smtp_server`, `sender` | server and sender of the end-of-job emails; no server, no email | empty |
