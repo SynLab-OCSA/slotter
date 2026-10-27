@@ -1,0 +1,21 @@
+# rot8. The keys are described in clusters/README.md
+
+abbreviation = "r"
+module = "rot8"
+# Written by rot8 itself
+output = "rot8.out"
+keep = ["xyz"]
+command = "rot8 {input} {args}"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+success = "WORKFLOW COMPLETED SUCCESSFULLY"
+
+[cpu]
+option = "--cpu"
+
+[memory]
+default = 12000

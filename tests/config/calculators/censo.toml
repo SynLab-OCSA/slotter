@@ -1,0 +1,28 @@
+# CENSO. The keys are described in clusters/README.md
+
+abbreviation = "c"
+requires = ["conda/grimmelab"]
+output = "censo.out"
+command = "censo {input} {args} --inprc ./.censo2rc > {output} 2> censo.error"
+# The settings: .censo2rc of the calculation folder, or the user's one in /data.
+# "cp *" in the job does not copy hidden files, so it is copied here
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+if [[ ! -e $SLURM_SUBMIT_DIR/.censo2rc ]]; then cp /data/$(whoami)/.censo2rc $SLURM_SUBMIT_DIR; fi
+cp $SLURM_SUBMIT_DIR/.censo2rc .
+"""
+success = "CENSO all done!"
+
+[cpu]
+option = "--maxcores"
+
+[memory]
+default = 10000
+
+[readme]
+describe = [
+    { match = '', text = "Prune and optimise the ensemble" },
+]

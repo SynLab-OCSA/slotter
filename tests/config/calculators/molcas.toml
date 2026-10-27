@@ -1,0 +1,24 @@
+# OpenMolcas. The keys are described in clusters/README.md
+
+abbreviation = "m"
+module = "openmolcas"
+output = "{stem}.out"
+keep = ["xyz", "molden", "out"]
+command = "pymolcas {input} {args} > {output}"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+export WorkDir=$SCRATCH_DIR
+for i in $(seq 0 {cpu}); do mkdir tmp_$i; done
+"""
+post = "rm -rf tmp_*"
+success = "Happy landing!"
+
+[cpu]
+input = '(?i)MOLCAS_NPROCS\s*=\s*(\d+)'
+
+[memory]
+input = '(?i)MOLCAS_MEM\s*=\s*(\d+)'
+default = 1000

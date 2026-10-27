@@ -1,0 +1,20 @@
+# Ensemble Analyser. The keys are described in clusters/README.md
+
+abbreviation = "p"
+module = "enan"
+output = "output.out"
+keep = ["xyz", "json"]
+command = "ensemble_analyzer -e {input} {args} -o {output}"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+success = "CALCULATIONS COMPLETED SUCCESSFULLY"
+
+[cpu]
+option = ["-cpu", "--cpu"]
+
+[memory]
+default = 12000

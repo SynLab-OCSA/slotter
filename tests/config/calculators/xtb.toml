@@ -1,0 +1,23 @@
+# xtb. The keys are described in clusters/README.md
+# No success text: the exit code of xtb decides
+
+abbreviation = "x"
+# xtb of the module (version= picks it), after the conda environment so that
+# it wins in PATH
+requires = ["conda/grimmelab"]
+module = "xtb"
+output = "xtb.out"
+keep = ["xyz", "out"]
+command = "xtb {input} {args} > {output} 2> xtb.error"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+
+[cpu]
+option = ["-P", "--parallel"]
+
+[memory]
+default = 4000

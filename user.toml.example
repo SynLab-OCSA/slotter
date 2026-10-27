@@ -1,0 +1,26 @@
+# Personal preferences of slotter.
+# Copy this file to ~/.config/slotter.toml (or point SLOTTER_USER_CONFIG to
+# another file). Only the [readme] and [job] sections are read: paths and cluster
+# settings are in $SLOTTER_DIR/setup.toml and cannot be changed here.
+
+[readme]
+# Describe the input (commands, kind of calculation) in README.md
+parse_input = true
+# At the end of the job, write in README.md whether the calculation ended well
+parse_output = true
+
+# A section per program wins over the general choice, e.g.:
+# [readme.crest]
+# parse_output = false
+
+[job]
+# Stop if the folder already holds .out or .log files, and create ../<name>.<n>
+# where to run again (--no-check: only for one calculation)
+check_folder = true
+# At the end of the job, move the files to qm_all/ and keep only the main ones
+# (--no-qm-all: only for one calculation)
+qm_all = true
+
+# A section per program wins over the general choice, e.g.:
+# [job.crest]
+# qm_all = false

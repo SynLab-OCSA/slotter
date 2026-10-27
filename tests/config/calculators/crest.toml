@@ -1,0 +1,31 @@
+# CREST. The keys are described in clusters/README.md
+
+abbreviation = "s"
+# No module of its own yet: once crest is installed with tools/add-version.sh,
+# add module = "crest" (version= then picks the CREST version)
+requires = ["conda/grimmelab"]
+output = "crest.out"
+keep = ["xyz", "out"]
+command = "crest {input} {args} > {output} 2> crest.error"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+export OPENBLAS_NUM_THREADS=1
+"""
+success = "CREST terminated normally"
+
+[cpu]
+option = ["-T", "--T", "--threads"]
+
+[memory]
+default = 10000
+
+[readme]
+describe = [
+    { group = "search", source = "command", match = '--cinp', text = "Constrained conformational search" },
+    { group = "search", source = "command", match = '', text = "Conformational search of the geometry" },
+    { source = "command", match = '--nci', text = "Considering NCI ellipsoid" },
+    { source = "command", match = '--cluster', text = "PCA-RMSD clustering" },
+]

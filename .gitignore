@@ -1,0 +1,15 @@
+# tests/ holds large sample outputs: only the pytest files are tracked
+tests/*
+!tests/conftest.py
+!tests/test_*.py
+!tests/config/
+# Personal workflow scripts (fluo.py, phospho.py, ...); files already tracked stay tracked
+.scripts/
+.DS_Store
+__pycache__
+job-slurm.sh
+# Configuration folders ($SLOTTER_DIR: setup.toml and calculators/) put in the
+# repository: start from clusters/setup.example.toml and clusters/calc.example.toml
+clusters/*/
+*.egg-info/
+build/

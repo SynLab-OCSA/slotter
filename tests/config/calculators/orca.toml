@@ -1,0 +1,41 @@
+# ORCA. The keys are described in clusters/README.md
+
+abbreviation = "o"
+module = "orca"
+output = "{stem}.out"
+keep = ["inp", "xyz", "interp", "out", "hess", "final.interp"]
+# Full path: ORCA needs it to run in parallel
+command = "$(which orca) {input} {args} > {output}"
+# One thread per MPI process: OpenBLAS reads OPENBLAS_NUM_THREADS, then OMP_NUM_THREADS
+pre = """
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+success = "ORCA TERMINATED NORMALLY"
+failure = "ERROR !!!"
+
+[cpu]
+# PALn on a "!" line, otherwise nprocs in %pal
+input = ['(?im)^\s*!.*\bPAL(\d+)', '(?i)\bnprocs\s+(\d+)']
+limit = true
+
+[memory]
+input = '(?i)%maxcore\s+(\d+)'
+default = 4000
+per_cpu = true
+
+[readme]
+command = '(?m)^\s*!.*'
+describe = [
+    { group = "opt", match = '(?im)^\s*!.*optts', text = "Transition State optimisation" },
+    { group = "opt", match = ['(?im)^\s*!.*opt|%geom', '(?i)constrain'], text = "Constrained optimisation" },
+    { group = "opt", match = '(?im)^\s*!.*opt|%geom', text = "Geometry optimisation" },
+    { match = '(?i)maxstep\s+(\d*\.\d+)', text = "Reduced step to {1} a.u." },
+    { match = '(?im)^\s*!.*freq', text = "Frequency calculation" },
+    { match = '(?i)tddft', text = "TD-DFT Calculation" },
+    { match = '(?im)^\s*!.*neb', text = "Neb Calculation" },
+    { match = '(?im)^\s*!.*irc', text = "Intrinsic Reaction Calculation" },
+]

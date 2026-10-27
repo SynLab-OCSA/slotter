@@ -1,0 +1,47 @@
+# Settings of a cluster: paths and everything that does not depend on the
+# user. Copy this file to $SLOTTER_DIR/setup.toml; users cannot override it,
+# their preferences (README parsing) go in ~/.config/slotter.toml, see
+# user.toml.example.
+#
+# The programs are defined by $SLOTTER_DIR/calculators/*.toml (orca.toml for
+# "job.py orca", ...): start from calc.example.toml.
+# An optional $SLOTTER_DIR/job.sh replaces the template of job-slurm.sh
+# (assets/job.sh), see clusters/README.md.
+#
+# SLOTTER_DIR is the folder of this file, anywhere, e.g. in /etc/profile.d/:
+# export SLOTTER_DIR=/data/slotter
+#
+# Every key is optional: the values below are the defaults, except python.
+
+[cluster]
+# Python of slotter (3.11 or later): job.py and the other scripts re-run
+# themselves with it (src/bootstrap.py), and the jobs use it for
+# email_sender.py. Keep it a plain string on one line.
+python = "/opt/conda/bin/python"
+# Scratch on the nodes: each job uses <scratch>/slurm-$SLURM_JOB_ID
+scratch = "/scratch"
+# Max CPUs per job for the programs with "limit = true" in [cpu]: above it the
+# input is rewritten, unless --force is given
+max_cpu = 16
+# Personal #SBATCH options, one "#SBATCH --key=value" per line
+sbatchrc = "~/.sbatchrc"
+
+[slurm]
+# #SBATCH options written in every job (command line and .sbatchrc win)
+nodes = "1-1"
+error = "err-%j-%N.slurm"
+output = "out-%j-%N.slurm"
+
+[email]
+# Server of the end-of-job emails; empty = no email
+smtp_server = ""
+sender = "slurm@localhost"
+
+[modules]
+# Modulefile directories; empty = use $MODULEPATH
+modulepath = []
+# Run "module purge" before loading the job modules, so that the modules
+# loaded in the submitting shell cannot conflict with them
+purge = true
+# Modules offered by "job.py run" (top-level names); empty = all of them
+interactive = []

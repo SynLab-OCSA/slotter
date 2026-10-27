@@ -1,0 +1,25 @@
+# NWChem. The keys are described in clusters/README.md
+# No success text: the exit code decides
+
+abbreviation = "nw"
+requires = ["conda/nwchem"]
+output = "{stem}.out"
+keep = ["nw", "out"]
+command = "mpirun -np {cpu} nwchem {input} > {output}"
+# One thread per MPI process: OpenBLAS reads OPENBLAS_NUM_THREADS, then OMP_NUM_THREADS
+pre = """
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+
+[cpu]
+# --cpu is for slotter (mpirun -np), not for NWChem
+option = "--cpu"
+consume = true
+
+[memory]
+input = '(?i)memory\s+(?:total\s+)?(\d+)\s*(kb|mb|gb|kw|mw|gw)\b'
+default = 1000

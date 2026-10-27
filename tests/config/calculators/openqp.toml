@@ -1,0 +1,24 @@
+# OpenQP. The keys are described in clusters/README.md
+# No success text: the exit code decides
+
+abbreviation = "qp"
+module = "openqp"
+# Written by OpenQP itself
+output = "{stem}.log"
+keep = ["inp", "log"]
+command = "mpirun -np {cpu} openqp {input}"
+pre = """
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+"""
+
+[cpu]
+# --cpu is for slotter (mpirun -np), not for OpenQP
+option = "--cpu"
+consume = true
+
+[memory]
+default = 4000

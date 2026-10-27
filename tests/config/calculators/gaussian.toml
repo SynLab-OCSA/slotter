@@ -1,0 +1,37 @@
+# Gaussian. The keys are described in clusters/README.md
+
+abbreviation = "g"
+module = "gaussian"
+output = "{stem}.log"
+keep = ["gjf", "out", "log"]
+command = "g16 {input} {args}"
+pre = """
+export OMP_NUM_THREADS={cpu}
+export MKL_NUM_THREADS={cpu}
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+export GAUSS_SCRDIR=$SCRATCH_DIR
+"""
+success = "Normal termination of Gaussian"
+
+[cpu]
+input = '(?i)%\s*nproc(?:shared|s)?\s*=\s*(\d+)'
+limit = true
+
+[memory]
+# Without a unit, Gaussian reads %mem in words (8 bytes)
+input = '(?i)%\s*mem\s*=\s*(\d+)\s*([kmgt]?[bw])?'
+unit = "w"
+default = 1000
+
+[readme]
+command = '(?m)^\s*#.*'
+describe = [
+    { group = "opt", match = ['(?im)^\s*#.*opt', '(?im)^\s*#.*\bts\b'], text = "Transition State optimisation" },
+    { group = "opt", match = ['(?im)^\s*#.*opt', '(?i)modredundant'], text = "Constrained optimisation" },
+    { group = "opt", match = '(?im)^\s*#.*opt', text = "Geometry optimisation" },
+    { match = '(?im)^\s*#.*maxstep\s*=\s*(\d+)', text = "Reduced step to MaxStep={1} (0.01 Bohr)" },
+    { match = '(?im)^\s*#.*freq', text = "Frequency calculation" },
+    { match = '(?im)^\s*#.*\btd\b', text = "TD-DFT Calculation" },
+    { match = '(?im)^\s*#.*\birc\b', text = "Intrinsic Reaction Calculation" },
+]

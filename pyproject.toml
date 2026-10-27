@@ -1,0 +1,36 @@
+[project]
+name = "slotter"
+version = "0.1.0"
+description = "Prepare and submit computational chemistry jobs (ORCA, Gaussian, CREST, ...) on SLURM"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Andrea Pellegrini" }]
+dependencies = [
+    "InquirerPy",           # menu of "job.py run"
+]
+
+[project.optional-dependencies]
+# The scripts in .scripts/ (fluo.py, phospho.py, supporting.py)
+scripts = [
+    "numpy",
+    "scipy",
+    "cclib",
+    "periodictable",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+# Slotter runs from its folder (job.py, src/, clusters/), it is not
+# installed as a package: "pip install ." only installs the dependencies
+# into the Python of [cluster] python.
+[tool.setuptools]
+packages = []
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

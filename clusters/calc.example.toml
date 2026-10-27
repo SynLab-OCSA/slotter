@@ -1,0 +1,76 @@
+# Definition of a program: copy this file to $SLOTTER_DIR/calculators/<program>.toml
+# and "job.py <program> <input>" runs it. Every key is described in
+# clusters/README.md; this example is ORCA, with all of them.
+#
+# In output, command, pre and post:
+#   {input}  input file (mol.inp)        {stem}  input without extension (mol)
+#   {args}   options after the input     {output} the output file below
+#   {cpu}    CPUs asked to SLURM         {mem}    memory asked to SLURM
+
+# Prefix of the job name: o-mol
+abbreviation = "o"
+# Modules loaded first, as they are written (a fixed version is fine)
+# requires = ["conda/grimmelab", "openmpi/4.1.8"]
+# Module of the program, loaded last: version=... on the command line applies
+# to it. Without it, version= is an error
+module = "orca"
+output = "{stem}.out"
+# Files <stem>.<ext> kept next to the output; everything else goes in qm_all/
+# (empty or missing: no qm_all/)
+keep = ["inp", "xyz", "out", "hess"]
+# Full path: ORCA needs it to run in parallel
+command = "$(which orca) {input} {args} > {output}"
+# Shell lines before the calculation (in the scratch, after the modules) and at
+# the end of the job. The job template sets no variable: threads, stack and
+# any other environment of the program go here. ORCA runs one MPI process
+# per CPU: one thread each (its OpenBLAS reads OPENBLAS_NUM_THREADS, then
+# OMP_NUM_THREADS). A program with threads only would use {cpu} instead
+pre = """
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export OMP_STACKSIZE=32G
+ulimit -s unlimited
+"""
+post = ""
+# Ended well if all the success texts are in the output and no failure text
+# is; without success, the exit code of the program decides
+success = "ORCA TERMINATED NORMALLY"
+failure = "ERROR !!!"
+
+[cpu]
+# CPUs from an option of the command line ("-n 8")...
+# option = ["-n", "--cpus"]
+# consume = true        # the option is for slotter only, not in {args}
+# ...or from the input: the first group of the first regex that matches
+input = ['(?im)^\s*!.*\bPAL(\d+)', '(?i)\bnprocs\s+(\d+)']
+# Above max_cpu of setup.toml, rewrite the number in the input (not with --force)
+limit = true
+# CPUs when nothing is found
+default = 1
+
+[memory]
+# MB from the input: first group the number, second (optional) the unit
+input = '(?i)%maxcore\s+(\d+)'
+# Unit when the regex finds none: b, kb, mb, gb, tb, or words w, kw, mw, gw, tw
+unit = "mb"
+# MB when nothing is found
+default = 4000
+# The memory found is per CPU
+per_cpu = true
+
+# README.md of the calculation (unless the user sets parse_input = false)
+[readme]
+# Lines of the input shown as the commands; missing: the command line
+command = '(?m)^\s*!.*'
+# Numbered list of what the calculation does: a rule adds its text when its
+# regex (all of them, if a list) matches the input, or the command line with
+# source = "command". {1}, {2}, ... are the groups of the last regex. Among
+# the rules of one group only the first that matches counts.
+describe = [
+    { group = "opt", match = '(?im)^\s*!.*optts', text = "Transition State optimisation" },
+    { group = "opt", match = ['(?im)^\s*!.*opt|%geom', '(?i)constrain'], text = "Constrained optimisation" },
+    { group = "opt", match = '(?im)^\s*!.*opt|%geom', text = "Geometry optimisation" },
+    { match = '(?i)maxstep\s+(\d*\.\d+)', text = "Reduced step to {1} a.u." },
+    { match = '(?im)^\s*!.*freq', text = "Frequency calculation" },
+]
