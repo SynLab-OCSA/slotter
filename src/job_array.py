@@ -34,6 +34,11 @@ ARRAY_JOB = 'job-array.sh'
 OWN_FILES = re.compile(r'^(README.*\.md|job-.*\.sh|.*\.slurm|update(-.*)?|live(-.*)?)$')
 # The name ends up in the job: README-<stem>.md, .originals-<stem>, ...
 PLAIN_NAME = re.compile(r'^[\w.+-]+$')
+# Codes of the sbatch file names (--output, --error) the task can expand itself
+FILE_NAME_CODES = {'j': 'SLURM_JOB_ID', 'N': 'SLURMD_NODENAME', 'A': 'SLURM_ARRAY_JOB_ID',
+                   'a': 'SLURM_ARRAY_TASK_ID', 'x': 'SLURM_JOB_NAME', 'u': 'USER'}
+# Messages of SLURM itself (time limit, out of memory): one file for the whole array
+ARRAY_ERRORS = '.err-%A.slurm'
 
 
 def is_array(files):
@@ -125,6 +130,30 @@ def array_limit(slurm_commands):
     return f'%{default}' if default else ''
 
 
+def shell_file_name(key, pattern):
+    """An sbatch file name as a bash word: out-%j-%N.slurm -> "out-${SLURM_JOB_ID}-${SLURMD_NODENAME}.slurm"."""
+    word = []
+    for part in re.split(r'(%.)', pattern):
+        if part == '%%':
+            word.append('%')
+        elif re.fullmatch(r'%.', part):
+            if part[1] not in FILE_NAME_CODES:
+                raise ValueError(f'{key} = {pattern}: {part} cannot be used in a job array '
+                                 f'(only %{", %".join(FILE_NAME_CODES)})')
+            word.append('${' + FILE_NAME_CODES[part[1]] + '}')
+        else:
+            word.append(re.sub(r'([\\"$`])', r'\\\1', part))
+    return '"' + ''.join(word) + '"'
+
+
+def task_redirections(sbatch):
+    """Redirections of the job of a task: its out/err files, in the folder of the calculation."""
+    out = shell_file_name('output', str(sbatch.get('output') or 'slurm-%j.out'))
+    if not sbatch.get('error') or sbatch['error'] == sbatch.get('output'):
+        return f'> {out} 2>&1'
+    return f'> {out} 2> {shell_file_name("error", str(sbatch["error"]))}'
+
+
 def array_sbatch(calc_obj, slurm_commands, resources, n_tasks):
     """#SBATCH lines of job-array.sh: the largest resources, one task per calculation."""
     sbatch = {**CONFIG['slurm'], **slurm_commands}
@@ -135,13 +164,15 @@ def array_sbatch(calc_obj, slurm_commands, resources, n_tasks):
     limit = array_limit(slurm_commands)
     sbatch['ntasks'] = max(cpu for cpu, _ in resources)
     sbatch['mem'] = max(mem for _, mem in resources)
-    # %j is the job of one task: %A_%a keeps their files apart
-    for key in ('output', 'error'):
-        if sbatch.get(key):
-            sbatch[key] = str(sbatch[key]).replace('%j', '%A_%a')
+    # The task writes its out/err files in the folder of its calculation
+    # (task_redirections): SLURM keeps only its own messages, for all the tasks
+    redirections = task_redirections(sbatch)
+    sbatch['output'] = '/dev/null'
+    sbatch['error'] = ARRAY_ERRORS
+    sbatch['open-mode'] = 'append'
     sbatch['array'] = f'0-{n_tasks - 1}{limit}'
     name = f'{calc_obj.abbreviation}-{os.path.basename(os.getcwd())}'
-    return f'#SBATCH --job-name={name}\n{convert_slurm_cmd(sbatch)}'
+    return f'#SBATCH --job-name={name}\n{convert_slurm_cmd(sbatch)}', redirections
 
 
 def write_array(calculation, files, options, slurm_commands, choices):
@@ -170,7 +201,7 @@ def write_array(calculation, files, options, slurm_commands, choices):
     # Before moving the inputs: the CPU limit may correct them
     prepared = [prepare(calculation, f, options, slurm_commands, choices['force']) for f in files]
     resources = [(s['ntasks'], s['mem']) for _, s in prepared]
-    sbatch_lines = array_sbatch(calc_obj, slurm_commands, resources, len(tasks))
+    sbatch_lines, redirections = array_sbatch(calc_obj, slurm_commands, resources, len(tasks))
 
     if split:
         split_folder(split, os.path.splitext(files[0])[1])
@@ -200,10 +231,12 @@ def write_array(calculation, files, options, slurm_commands, choices):
 JOBS=({jobs})
 JOB=${{JOBS[$SLURM_ARRAY_TASK_ID]}}
 
-# The job runs as if it had been submitted from the folder of its calculation
+# The job runs as if it had been submitted from the folder of its calculation,
+# and writes there its out/err files (the messages of SLURM itself, e.g. time
+# limit or out of memory, are in {ARRAY_ERRORS.replace('%A', '<array>')} of this folder)
 export SLURM_SUBMIT_DIR="$SLURM_SUBMIT_DIR/$(dirname "$JOB")"
-cd "$SLURM_SUBMIT_DIR" || exit 1
-exec bash "$(basename "$JOB")"
+cd "$SLURM_SUBMIT_DIR" || {{ echo "ERROR: task $SLURM_ARRAY_TASK_ID: cannot enter $SLURM_SUBMIT_DIR" >&2; exit 1; }}
+exec bash "$(basename "$JOB")" {redirections}
 ''')
     for folder, name, tag in tasks:
         print(f'{os.path.join(folder, name)}: {os.path.join(folder, f"job-slurm{tag}.sh")}')

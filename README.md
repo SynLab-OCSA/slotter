@@ -175,8 +175,10 @@ submitted: task *i* runs the job of calculation *i* in its folder. Then:
 
 - SLURM gives every task the same resources: the largest CPUs and memory among
   the inputs (the command of each one still uses its own, e.g. `PAL4`);
-- the `.slurm` files of the tasks are in the current folder, as
-  `out-<array>_<task>-<node>.slurm`;
+- the `.slurm` files of each task are in the folder of its calculation, named
+  as for a single job (`out-<job id>-<node>.slurm`, with the job id of the
+  task). The messages of SLURM itself (time limit, out of memory) of all the
+  tasks are in one hidden file of the current folder, `.err-<array>.slurm`;
 - each calculation sends its own email, with its outcome;
 - `array=%4` runs at most 4 tasks at a time (without it, `[cluster] array_limit`
   of the cluster, if set; otherwise SLURM runs as many as the resources and the

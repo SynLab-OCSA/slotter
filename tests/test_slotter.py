@@ -333,7 +333,7 @@ def test_copy_to_the_scratch(modulepath, workdir, tmp_path):
     copy = job[job.index('rsync -a'):job.index('exit 1; }', job.index('rsync -a')) + len('exit 1; }')]
     write_files(workdir, {name: '' for name in (
         '.censo2rc', 'update.xyz', 'sub/update', 'sub/README.md',          # inputs, hidden ones too
-        'README.md', 'README-a.md', 'out-1-n.slurm', 'job-array.sh',       # slotter and the job
+        'README.md', 'README-a.md', 'out-1-n.slurm', '.err-29100.slurm', 'job-array.sh',  # slotter and the job
         'update', 'live', 'update-12', 'live-12', '.originals/mol.inp', '.originals-a/x', 'qm_all/old.out')})
     scratch = tmp_path / 'scratch'
     scratch.mkdir()
@@ -444,8 +444,12 @@ def test_array_one_task_per_folder(modulepath, workdir):
     array = (workdir / 'job-array.sh').read_text()
     # The largest resources among the inputs, a task for each folder
     for line in ('#SBATCH --job-name=o-calc', '#SBATCH --ntasks=8', '#SBATCH --mem=16000',
-                 '#SBATCH --partition=long', '#SBATCH --array=0-1', '#SBATCH --output=out-%A_%a-%N.slurm',
-                 'JOBS=(conf_1/job-slurm.sh conf_2/job-slurm.sh)'):
+                 '#SBATCH --partition=long', '#SBATCH --array=0-1',
+                 # SLURM keeps only its own messages, the task writes its files in its folder
+                 '#SBATCH --output=/dev/null', '#SBATCH --error=.err-%A.slurm', '#SBATCH --open-mode=append',
+                 'JOBS=(conf_1/job-slurm.sh conf_2/job-slurm.sh)',
+                 'exec bash "$(basename "$JOB")" > "out-${SLURM_JOB_ID}-${SLURMD_NODENAME}.slurm" '
+                 '2> "err-${SLURM_JOB_ID}-${SLURMD_NODENAME}.slurm"'):
         assert line + '\n' in array
     assert 'version' not in array
     # Each folder: its own job, as by job.py alone
@@ -463,11 +467,16 @@ def test_array_task_runs_the_job_of_its_folder(modulepath, workdir):
     write_files(workdir, {'conf_1/opt.inp': ORCA.format(4, 3000), 'conf 2/opt.inp': ORCA.format(4, 3000)})
     write_array('orca', ['conf_1/opt.inp', 'conf 2/opt.inp'], '', {}, array_choices())
     # Instead of the calculation: where it runs, and from where it was submitted
-    (workdir / 'conf 2' / 'job-slurm.sh').write_text('echo "$PWD|$SLURM_SUBMIT_DIR"\n')
-    env = {**os.environ, 'SLURM_ARRAY_TASK_ID': '1', 'SLURM_SUBMIT_DIR': str(workdir)}
-    out = subprocess.run(['bash', 'job-array.sh'], env=env, capture_output=True, text=True, check=True).stdout
-    here, submit = out.strip().split('|')
-    assert os.path.realpath(here) == os.path.realpath(submit) == os.path.realpath(workdir / 'conf 2')
+    (workdir / 'conf 2' / 'job-slurm.sh').write_text('echo "$PWD|$SLURM_SUBMIT_DIR"\necho problem >&2\n')
+    env = {**os.environ, 'SLURM_ARRAY_TASK_ID': '1', 'SLURM_SUBMIT_DIR': str(workdir),
+           'SLURM_JOB_ID': '29103', 'SLURMD_NODENAME': 'node1'}
+    subprocess.run(['bash', 'job-array.sh'], env=env, check=True)
+    # Its out/err files are in the folder of the calculation, as for a single job
+    folder = workdir / 'conf 2'
+    here, submit = (folder / 'out-29103-node1.slurm').read_text().strip().split('|')
+    assert os.path.realpath(here) == os.path.realpath(submit) == os.path.realpath(folder)
+    assert (folder / 'err-29103-node1.slurm').read_text() == 'problem\n'
+    assert not list(workdir.glob('*.slurm'))
 
 
 def test_array_inputs_of_one_folder_get_a_folder_each(modulepath, workdir):
@@ -516,6 +525,29 @@ def test_array_stops_before_moving_or_writing(modulepath, workdir, files, choice
     with pytest.raises(ValueError, match=error):
         write_array('orca', ['a.inp', 'b.inp'] if 'b.inp' in files else ['c/a.inp'], '', slurm, array_choices(**choices))
     assert sorted(str(p.relative_to(workdir)) for p in workdir.rglob('*')) == before
+
+
+@pytest.mark.parametrize('slurm, redirections', [
+    ({'output': 'out-%j-%N.slurm', 'error': 'err-%j-%N.slurm'},
+     '> "out-${SLURM_JOB_ID}-${SLURMD_NODENAME}.slurm" 2> "err-${SLURM_JOB_ID}-${SLURMD_NODENAME}.slurm"'),
+    # Without --error, or the same file: one file, as SLURM does
+    ({'output': 'log-%x-%A_%a.txt', 'error': None}, '> "log-${SLURM_JOB_NAME}-${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.txt" 2>&1'),
+    ({'output': 'o-%j', 'error': 'o-%j'}, '> "o-${SLURM_JOB_ID}" 2>&1'),
+    ({'output': None, 'error': None}, '> "slurm-${SLURM_JOB_ID}.out" 2>&1'),
+    # Literal text stays literal in bash
+    ({'output': '100%%-$HOME "x".out', 'error': None}, '> "100%-\\$HOME \\"x\\".out" 2>&1'),
+])
+def test_out_and_err_files_of_a_task(slurm, redirections):
+    from src.job_array import task_redirections
+    assert task_redirections(slurm) == redirections
+
+
+def test_file_name_codes_a_task_cannot_expand(modulepath, workdir):
+    from src.job_array import write_array
+    write_files(workdir, {'c/a.inp': '! PAL4\n'})
+    with pytest.raises(ValueError, match='output = out-%s.slurm: %s cannot be used in a job array'):
+        write_array('orca', ['c/a.inp'], '', {'output': 'out-%s.slurm'}, array_choices())
+    assert not (workdir / 'c' / 'job-slurm.sh').exists()
 
 
 def test_array_options(modulepath, workdir):
