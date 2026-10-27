@@ -20,6 +20,9 @@ check_folder = true
 # At the end of the job, move the files to qm_all/ and keep only the main ones
 # (--no-qm-all: only for one calculation)
 qm_all = true
+# Job array of inputs in one folder (job.py orca *.inp): keep them there,
+# instead of moving each one to a folder of its own (--same-folder: only once)
+same_folder = false
 
 # A section per program wins over the general choice, e.g.:
 # [job.crest]

@@ -13,7 +13,10 @@ JOB_TEMPLATE = 'job.sh'
 DEFAULT_TEMPLATE = os.path.join(REPO_DIR, 'assets', JOB_TEMPLATE)
 
 # Only these braces are replaced, any other (e.g. ${ext[@]}) is bash
-OPTIONAL = ('scratch', 'output', 'cpu', 'mem', 'command_quoted')
+# Calculations of a job array kept in one folder (--same-folder), else empty:
+# {tag} is -<stem> (.originals-<stem>), {job_tag} is -$SLURM_JOB_ID (update-<job id>, live-<job id>)
+OPTIONAL = ('scratch', 'output', 'cpu', 'mem', 'command_quoted', 'tag', 'job_tag')
+SHARED_FOLDER = ('tag', 'job_tag')
 REQUIRED = ('sbatch', 'modules', 'pre', 'command', 'qm_all', 'outcome', 'email', 'post')
 PLACEHOLDER = re.compile(r'\{(' + '|'.join(OPTIONAL + REQUIRED) + r')\}')
 # The outcome needs the exit code of the calculation
@@ -32,6 +35,11 @@ def check_template(text, path):
         raise ValueError(f'{path}: missing {", ".join(missing)}')
     if not STATUS.search(text):
         raise ValueError(f'{path}: {{command}} must be alone on its line, followed by the line STATUS=$?')
+
+
+def missing_for_shared_folder(text):
+    """Placeholders of SHARED_FOLDER missing from the template text."""
+    return [f'{{{name}}}' for name in SHARED_FOLDER if f'{{{name}}}' not in text]
 
 
 def read_template(path=None):
@@ -85,12 +93,13 @@ done
 COMPLETED = 'CALCULATION COMPLETED CORRECTLY'
 NOT_COMPLETED = 'CALCULATION NOT COMPLETED'
 
-def outcome_commands(calc_obj, output_file, readme):
-    """Shell lines setting $OUTCOME (and appending it to README.md if `readme`).
+def outcome_commands(calc_obj, output_file, readme, readme_file='README.md'):
+    """Shell lines setting $OUTCOME (and appending it to readme_file if `readme`).
 
     Only the end of the calculation is checked (calc_obj.outcome_test): the
     results are in the output, and are not parsed.
     """
+    readme_file = shlex.quote(readme_file)
     lines = [f'if {calc_obj.outcome_test(output_file or "")}; then',
              f'    OUTCOME="{COMPLETED}"',
              'else',
@@ -98,22 +107,34 @@ def outcome_commands(calc_obj, output_file, readme):
              'fi',
              'echo "$OUTCOME (exit code $STATUS)"']
     if readme:
-        lines.append(f"printf -- '\\n--------------------\\n%s\\n--------------------\\n' \"$OUTCOME\" >> README.md")
+        lines.append(f"printf -- '\\n--------------------\\n%s\\n--------------------\\n' \"$OUTCOME\" >> {readme_file}")
         if output_file:
             # The end of the output usually says why it stopped
             out = shlex.quote(output_file)
             lines.append(f'if [[ $OUTCOME == "{NOT_COMPLETED}" && -f {out} ]]; then '
-                         f'echo >> README.md; tail -n 10 {out} >> README.md; fi')
+                         f'echo >> {readme_file}; tail -n 10 {out} >> {readme_file}; fi')
     return '\n'.join(lines)
 
-def write_job_file(input_file, calculation, calc_cmd='', slurm_cmd=None, run=False, module=(), command_1='', command_2='', job_file='job-slurm.sh', qm_all=None):
+def program_modules(calc_obj, version):
+    """Modules of the program, with version= applied: ValueError if it cannot be loaded."""
+    if version and not calc_obj.module:
+        raise ValueError(f'{calc_obj.name} has no module to apply version={version} to')
+    return resolve(calc_obj.modules, version)
+
+def write_job_file(input_file, calculation, calc_cmd='', slurm_cmd=None, run=False, module=(), command_1='', command_2='', job_file='job-slurm.sh', qm_all=None, tag=''):
     """Write job_file from the template.
 
     qm_all: move the files to qm_all/ at the end; None is the user's choice
     (~/.config/slotter.toml, [job] qm_all).
+    tag: -<stem> when several calculations share the folder (src/job_array.py):
+    their files get it (README-<stem>.md, .originals-<stem>), while update
+    and live get the job id.
     """
     calc_obj = CALCULATORS[calculation]
     template = read_template()
+    if tag and missing_for_shared_folder(template):
+        raise ValueError(f'{template_file()}: no {", ".join(missing_for_shared_folder(template))}, '
+                         'needed by several calculations in one folder')
     if qm_all is None:
         qm_all = user_choice('job', 'qm_all', calculation)
 
@@ -129,9 +150,7 @@ def write_job_file(input_file, calculation, calc_cmd='', slurm_cmd=None, run=Fal
     cpu = sbatch.get('ntasks', 1)
 
     if not run:
-        if version and not calc_obj.module:
-            raise ValueError(f'{calculation} has no module to apply version={version} to')
-        modules = resolve(calc_obj.modules, version)
+        modules = program_modules(calc_obj, version)
         input_file_no_extention = os.path.splitext(input_file)[0]
         output_file = calc_obj.output_file(input_file)
         pre, cm, post = calc_obj.job_commands(calc_cmd, input_file, cpu, sbatch.get('mem', ''))
@@ -143,6 +162,7 @@ def write_job_file(input_file, calculation, calc_cmd='', slurm_cmd=None, run=Fal
     command_1 = '\n'.join(c for c in (command_1, pre) if c)
     command_2 = '\n'.join(c for c in (command_2, post) if c)
 
+    readme = f'README{tag}.md'
     job_name = f'{calc_obj.abbreviation}-{input_file_no_extention if not run else "run"}'
     values = {
         'sbatch': f'#SBATCH --job-name={job_name}\n{convert_slurm_cmd(sbatch)}',
@@ -156,8 +176,11 @@ def write_job_file(input_file, calculation, calc_cmd='', slurm_cmd=None, run=Fal
         'command_quoted': shlex.quote(cm),
         'qm_all': create_qm_all(calc_obj, input_file_no_extention, output_file, qm_all),
         # The user can turn the README update off in ~/.config/slotter.toml ([readme] parse_output)
-        'outcome': outcome_commands(calc_obj, output_file, readme=not run and readme_parsing(calculation, 'parse_output')),
-        'email': f'{helper("email_sender.py")} {email_address} $SLURM_SUBMIT_DIR $SLURM_JOB_ID "$OUTCOME"',
+        'outcome': outcome_commands(calc_obj, output_file, not run and readme_parsing(calculation, 'parse_output'), readme),
+        # Several calculations in the folder: the README.md of this one
+        'email': f'{helper("email_sender.py")} {email_address} $SLURM_SUBMIT_DIR{"/" + shlex.quote(readme) if tag else ""} $SLURM_JOB_ID "$OUTCOME"',
+        'tag': tag,
+        'job_tag': '-$SLURM_JOB_ID' if tag else '',
         'post': command_2,
     }
     with open(job_file, 'w') as f:

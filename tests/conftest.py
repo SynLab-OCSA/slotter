@@ -56,4 +56,4 @@ def cluster_config(monkeypatch):
     monkeypatch.setitem(CONFIG['cluster'], 'python', '/usr/bin/python3')
     monkeypatch.setitem(CONFIG['modules'], 'purge', True)
     monkeypatch.setitem(USER_CONFIG, 'readme', {'parse_input': True, 'parse_output': True})
-    monkeypatch.setitem(USER_CONFIG, 'job', {'check_folder': True, 'qm_all': True})
+    monkeypatch.setitem(USER_CONFIG, 'job', {'check_folder': True, 'qm_all': True, 'same_folder': False})

@@ -4,7 +4,7 @@ import os
 from src.calculators import CALCULATORS
 from src.config import readme_parsing
 
-def write_md(calculation, input_file, cmd_line):
+def write_md(calculation, input_file, cmd_line, readme='README.md'):
     calc_obj = CALCULATORS.get(calculation)
     if not calc_obj:
         return None
@@ -21,7 +21,7 @@ def write_md(calculation, input_file, cmd_line):
         parsed_input = parse_input, 
     )
 
-    with open('README.md', 'w') as f:
+    with open(readme, 'w') as f:
         f.write(text)
     
     return None

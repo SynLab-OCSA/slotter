@@ -29,22 +29,24 @@ done
 # SETTING THE FOLDER FOR THE CALCULATION
 
 ## CREATE THE ORIGINAL'S FOLDER
-mkdir .originals
-cp -r * .originals
-rm .originals/README.md .originals/*slurm .originals/*sh
+mkdir .originals{tag}
+cp -r * .originals{tag}
+rm -f .originals{tag}/README*.md .originals{tag}/*slurm .originals{tag}/*sh
 
 
 ## COPYING THE FILES OF THE DIRECTORY IN THE SCRATCH
 cp -v -r $SLURM_SUBMIT_DIR/* $SCRATCH_DIR
 
 
-echo "scp $SLURMD_NODENAME:$SCRATCH_DIR/{output} $SLURM_SUBMIT_DIR" > $SLURM_SUBMIT_DIR/update
-echo "ssh $SLURMD_NODENAME tail -f -n 1000 $SCRATCH_DIR/{output}" > $SLURM_SUBMIT_DIR/live
+echo "scp $SLURMD_NODENAME:$SCRATCH_DIR/{output} $SLURM_SUBMIT_DIR" > $SLURM_SUBMIT_DIR/update{job_tag}
+echo "ssh $SLURMD_NODENAME tail -f -n 1000 $SCRATCH_DIR/{output}" > $SLURM_SUBMIT_DIR/live{job_tag}
 # echo "ssh $SLURMD_NODENAME cat $SCRATCH_DIR/{output} | less " > $SLURM_SUBMIT_DIR/list
-chmod ug+x $SLURM_SUBMIT_DIR/update $SLURM_SUBMIT_DIR/live # $SLURM_SUBMIT_DIR/list
+chmod ug+x $SLURM_SUBMIT_DIR/update{job_tag} $SLURM_SUBMIT_DIR/live{job_tag} # $SLURM_SUBMIT_DIR/list
 
 cd $SCRATCH_DIR
-rm README.md
+# Not copied back: the README.md can be edited while the job runs, and
+# update/live of the calculations sharing the folder are removed by their own job
+rm -f README*.md update live update-* live-*
 
 # LOADING MODULES
 
@@ -62,7 +64,7 @@ echo
 {command}
 STATUS=$?
 
-rm *.slurm *.sh
+rm -f *.slurm *.sh
 {qm_all}
 
 
@@ -86,5 +88,5 @@ done
 
 {post}
 
-rm $SLURM_SUBMIT_DIR/update $SLURM_SUBMIT_DIR/live
+rm $SLURM_SUBMIT_DIR/update{job_tag} $SLURM_SUBMIT_DIR/live{job_tag}
 

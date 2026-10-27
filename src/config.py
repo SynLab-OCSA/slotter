@@ -53,6 +53,8 @@ USER_DEFAULTS = {
         'check_folder': True,
         # At the end of the job, move the files to qm_all/ except calculators/<name>.toml keep
         'qm_all': True,
+        # Job array of inputs in one folder: keep them there instead of a folder for each (src/job_array.py)
+        'same_folder': False,
     },
 }
 
@@ -97,7 +99,7 @@ def user_choice(section, key, calculation):
     specific = values.get(calculation)
     if isinstance(specific, dict) and key in specific:
         return bool(specific[key])
-    return bool(values[key])
+    return bool(values.get(key, USER_DEFAULTS[section][key]))
 
 
 def readme_parsing(calculation, which):

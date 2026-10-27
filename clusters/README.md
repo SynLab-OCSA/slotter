@@ -129,6 +129,14 @@ left as it is, so the template is plain bash:
 | `{output}` | output file (empty for `job.py run`) | no |
 | `{cpu}`, `{mem}` | CPUs and memory asked to SLURM | no |
 | `{command_quoted}` | the calculation, quoted for `echo` | no |
+| `{tag}` | `-<input name>` when several calculations share the folder (`--same-folder`), else empty: it goes in the name of `.originals` | for `--same-folder` |
+| `{job_tag}` | `-$SLURM_JOB_ID` when several calculations share the folder, else empty: it goes in the names of `update` and `live` | for `--same-folder` |
+
+In a job array each calculation has its own `job-slurm.sh`, written from
+this template: the task runs it from the folder of the calculation, with
+`SLURM_SUBMIT_DIR` set to that folder. With `--same-folder` the README of each
+calculation is `README{tag}.md`, and the template removes `README*.md` from the
+scratch (so the copy there never overwrites the one being edited).
 
 If a required placeholder is missing, `job.py` stops with a message, e.g.
 `ERROR: /data/slotter/job.sh: missing {email}`: a template without them would

@@ -23,7 +23,9 @@ def send_mail(mail, directory, jobid=None, outcome=None):
     sender = CONFIG['email']['sender']
     jobid = jobid or os.path.basename(os.path.normpath(directory))
     try:
-        with open(os.path.join(directory, 'README.md')) as f:
+        # The folder of the calculation, or its README (several calculations in one folder)
+        readme = directory if os.path.isfile(directory) else os.path.join(directory, 'README.md')
+        with open(readme) as f:
             text = f.read()
 
         text = f'''From: SLURM <{sender}>
@@ -40,6 +42,6 @@ Subject: Calculation of {jobid}{': ' + outcome if outcome else ''}
         print('Email NOT sent')
 
 if __name__=='__main__':
-    # email_sender.py <mail> <directory> [<job id> [<outcome>]]: jobs written by
+    # email_sender.py <mail> <directory or README> [<job id> [<outcome>]]: jobs written by
     # older versions of slotter pass only the first two or three
     send_mail(*sys.argv[1:5])

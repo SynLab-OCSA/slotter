@@ -75,12 +75,13 @@ One calculation per folder: go into the folder with the input and run
 
 ```bash
 job.py <program> <input> [program options] [key=value ...] [--write] [--force] [--no-check] [--no-qm-all]
+job.py <program> <input> <input> ... [same options] [--same-folder]      # job array
 ```
 
 | Argument | Meaning |
 |---|---|
 | `<program>` | one of the programs of the cluster (`job.py -h` lists them), or `run` |
-| `<input>` | input file, in the current folder |
+| `<input>` | input file, in the current folder; more than one, or one in another folder, make a [job array](#several-calculations-job-arrays) |
 | program options | passed as they are to the program, e.g. `-T 8` |
 | `version=6.1.1` | version of the module of the program (default: the default version of the module); `--version=6.1.1` works too |
 | `key=value` | any other SLURM option, e.g. `partition=long`, `time=2-00:00:00`, `mail-user=me@unibo.it` |
@@ -88,9 +89,10 @@ job.py <program> <input> [program options] [key=value ...] [--write] [--force] [
 | `--force` | does not apply the CPU limit of the cluster (see below) |
 | `--no-check` | submits even if the folder already holds `.out` or `.log` files (see [Folder already used](#folder-already-used)) |
 | `--no-qm-all` | at the end, leaves all the files in the folder instead of moving them to `qm_all/` |
+| `--same-folder` | job array: the inputs stay in their folder, even several in one, instead of getting a folder each |
 
-`--force`, `--write`, `--no-check` and `--no-qm-all` are for slotter, written
-in full (no abbreviations): any other option goes to the program.
+`--force`, `--write`, `--no-check`, `--no-qm-all` and `--same-folder` are for
+slotter, written in full (no abbreviations): any other option goes to the program.
 `--no-check` and `--no-qm-all` act on one calculation; to turn them off for
 every calculation, or for every calculation of a program, see
 [User configuration](#user-configuration).
@@ -145,6 +147,44 @@ nothing: it creates a new folder `../<name>.<n>` with the original inputs
 `--no-check`, or `check_folder = false` in the
 [user configuration](#user-configuration), the folder is not checked and the
 job is submitted there.
+
+### Several calculations: job arrays
+
+With more than one input, or one in another folder, `job.py` submits a single
+SLURM job array, one task per input. The inputs are the files right after the
+program with the same extension (the first other word goes to the program,
+with the rest); options and `key=value` apply to all of them.
+
+```bash
+job.py orca conf_*/opt.inp                   # one task per folder
+job.py orca *.inp                            # each input gets a folder of its own
+job.py orca *.inp --same-folder              # all in this folder
+job.py crest conf_*/mol.xyz -T 8 array=%4    # at most 4 tasks at a time
+```
+
+| Inputs | Each calculation |
+|---|---|
+| in other folders (`conf_*/opt.inp`) | runs in its folder, which must hold no other file with the extension of the input |
+| in the current folder (`*.inp`) | is moved to `<name>/` with the files of the same name (`a.inp`, `a.xyz`, `a.gbw` go to `a/`); the other files are copied to every folder, except other inputs and the files of slotter |
+| in one folder, `--same-folder` | stays there, even with other inputs: its files get its name (`job-slurm-a.sh`, `README-a.md`, `.originals-a`), `update` and `live` the job id of its task (`./update-<job id>`, `./live-<job id>`), and there is no `qm_all/` |
+
+Every calculation gets its own `job-slurm.sh` and `README.md`, as with
+`job.py` alone, so it can also be submitted again by itself (`cd conf_3 &&
+sbatch job-slurm.sh`). `job-array.sh`, in the current folder, is what is
+submitted: task *i* runs the job of calculation *i* in its folder. Then:
+
+- SLURM gives every task the same resources: the largest CPUs and memory among
+  the inputs (the command of each one still uses its own, e.g. `PAL4`);
+- the `.slurm` files of the tasks are in the current folder, as
+  `out-<array>_<task>-<node>.slurm`;
+- each calculation sends its own email, with its outcome;
+- `array=%4` runs at most 4 tasks at a time; `scancel <array>` stops them all.
+
+Nothing is moved or written if something is wrong: an input with others in
+its folder, outputs already there (unless `--no-check`), a missing module
+version, or, with `--same-folder`, a program that always writes the same
+output (e.g. `crest.out`). `same_folder = true` in the
+[user configuration](#user-configuration) makes `--same-folder` the default.
 
 ### `job.py run`: any command
 
@@ -298,6 +338,7 @@ if __name__ == '__main__':
 | `slurm_cmd` | `#SBATCH` options; `ntasks` and `mem` (MB) are the CPUs and memory; `version` chooses the module version |
 | `command_1`, `command_2` | shell lines before `pre` and after `post` of the program, in the scratch |
 | `qm_all` | `False`: no `qm_all/` (default: the user's choice) |
+| `tag` | `-<name>` when several calculations share the folder: it goes in the names of their files |
 | `job_file` | name of the job (default `job-slurm.sh`) |
 
 To chain calculations, submit the next job at the end of this one, from
@@ -367,6 +408,7 @@ parse_output = false
 [job]
 check_folder = true     # stop if the folder already holds .out or .log files
 qm_all = true           # at the end, move the files to qm_all/
+same_folder = false     # job array of inputs in one folder: keep them there
 
 [job.crest]             # choice for a single program
 qm_all = false
@@ -376,6 +418,7 @@ qm_all = false
 - `parse_output = false`: the job does not update `README.md` at the end (the outcome is still in the email subject).
 - `check_folder = false`: the job is submitted even if the folder already holds `.out` or `.log` files.
 - `qm_all = false`: all the files stay in the folder at the end of the job.
+- `same_folder = true`: the inputs of a [job array](#several-calculations-job-arrays) in one folder stay there.
 
 For a single calculation, `--no-check` and `--no-qm-all` on the command line
 win over this file.

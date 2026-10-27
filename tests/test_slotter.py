@@ -115,14 +115,14 @@ def test_user_config_reads_only_readme_and_job(tmp_path, capsys):
                  '[cluster]\nscratch = "/home/me"\n')
     assert load_user_config(str(f)) == {
         'readme': {'parse_input': True, 'parse_output': False},
-        'job': {'check_folder': True, 'qm_all': True, 'crest': {'qm_all': False}}}
+        'job': {'check_folder': True, 'qm_all': True, 'same_folder': False, 'crest': {'qm_all': False}}}
     assert '[cluster] ignored, only [readme] and [job]' in capsys.readouterr().err
 
 
 def test_user_config_missing_file_uses_defaults(tmp_path):
     assert load_user_config(str(tmp_path / 'missing.toml')) == {
         'readme': {'parse_input': True, 'parse_output': True},
-        'job': {'check_folder': True, 'qm_all': True}}
+        'job': {'check_folder': True, 'qm_all': True, 'same_folder': False}}
 
 
 def test_readme_parsing_per_calculator(monkeypatch):
@@ -145,37 +145,37 @@ def test_arguments_with_equals_are_for_slotter(workdir, monkeypatch, extra, vers
     from src.parser_input import parse_args
     (workdir / 'mol.xyz').write_text('1\n\nH 0 0 0\n')
     monkeypatch.setattr(sys, 'argv', ['job.py', 'crest', 'mol.xyz', '-T', '4'] + extra)
-    _, _, calc_cmd, slurm_cmd, _, _ = parse_args()
-    assert calc_cmd.strip() == 'crest mol.xyz -T 4' + program
+    files, _, options, slurm_cmd, _, _ = parse_args()
+    assert files == ['mol.xyz'] and options == '-T 4' + program
     assert slurm_cmd.get('version') == version
     assert {k: v for k, v in slurm_cmd.items() if k in ('T', 'partition')} == slurm
 
 
 @pytest.mark.parametrize('extra, user, choices', [
-    ([], {}, {'check_folder': True, 'qm_all': True}),
+    ([], {}, {'check_folder': True, 'qm_all': True, 'same_folder': False}),
     # One calculation from the command line
-    (['--no-check', '--no-qm-all'], {}, {'check_folder': False, 'qm_all': False}),
+    (['--no-check', '--no-qm-all', '--same-folder'], {}, {'check_folder': False, 'qm_all': False, 'same_folder': True}),
     # Every calculation, or every calculation of one program, from ~/.config/slotter.toml
-    ([], {'qm_all': False}, {'check_folder': True, 'qm_all': False}),
-    ([], {'crest': {'check_folder': False}}, {'check_folder': False, 'qm_all': True}),
-    ([], {'orca': {'check_folder': False}}, {'check_folder': True, 'qm_all': True}),
+    ([], {'qm_all': False}, {'check_folder': True, 'qm_all': False, 'same_folder': False}),
+    ([], {'crest': {'check_folder': False, 'same_folder': True}}, {'check_folder': False, 'qm_all': True, 'same_folder': True}),
+    ([], {'orca': {'check_folder': False}}, {'check_folder': True, 'qm_all': True, 'same_folder': False}),
 ])
 def test_folder_check_and_qm_all_can_be_turned_off(workdir, monkeypatch, extra, user, choices):
     from src.parser_input import parse_args
     monkeypatch.setitem(USER_CONFIG, 'job', {'check_folder': True, 'qm_all': True, **user})
     (workdir / 'mol.xyz').write_text('1\n\nH 0 0 0\n')
     monkeypatch.setattr(sys, 'argv', ['job.py', 'crest', 'mol.xyz', '-T', '4'] + extra)
-    _, _, calc_cmd, _, _, found = parse_args()
-    assert found == choices
-    assert calc_cmd.strip() == 'crest mol.xyz -T 4'
+    _, _, options, _, _, found = parse_args()
+    assert found == {**choices, 'force': False}
+    assert options == '-T 4'
 
 
 def test_options_of_the_program_are_not_abbreviations_of_ours(workdir, monkeypatch):
     from src.parser_input import parse_args
     (workdir / 'mol.xyz').write_text('1\n\nH 0 0 0\n')
     monkeypatch.setattr(sys, 'argv', ['job.py', 'crest', 'mol.xyz', '--no', '--wr'])
-    _, _, calc_cmd, _, write, found = parse_args()
-    assert calc_cmd.strip() == 'crest mol.xyz --no --wr'
+    _, _, options, _, write, found = parse_args()
+    assert options == '--no --wr'
     assert not write and found['check_folder']
 
 
@@ -378,6 +378,150 @@ def test_template_must_keep_the_calculation_outcome_and_email(tmp_path, change, 
     path.write_text(text.replace(change[0], change[1]))
     with pytest.raises(ValueError, match=error):
         read_template(str(path))
+
+
+# --- job arrays ------------------------------------------------------------
+
+ORCA = '! B3LYP def2-SVP Opt PAL{}\n%maxcore {}\n'
+
+
+def array_choices(**choices):
+    return {'check_folder': True, 'qm_all': True, 'same_folder': False, 'force': False, **choices}
+
+
+def write_files(root, files):
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+
+
+@pytest.mark.parametrize('argv, files, options', [
+    (['crest', 'a.xyz', 'b.xyz', '-T', '4', 'version=1'], ['a.xyz', 'b.xyz'], '-T 4'),
+    (['crest', 'c/a.xyz', '-T', '4'], ['c/a.xyz'], '-T 4'),
+    # Inputs: the files right after the program, with the extension of the first
+    (['orca', 'a.inp', 'a.xyz'], ['a.inp'], 'a.xyz'),
+    (['rot8', 'a.xyz', 'word', 'b.xyz', '--cpu', '8'], ['a.xyz'], 'word b.xyz --cpu 8'),
+])
+def test_inputs_and_options_of_the_program(workdir, monkeypatch, argv, files, options):
+    from src.parser_input import parse_args
+    write_files(workdir, {'a.xyz': '', 'b.xyz': '', 'c/a.xyz': '', 'a.inp': ''})
+    monkeypatch.setattr(sys, 'argv', ['job.py'] + argv)
+    found, _, found_options, slurm, _, _ = parse_args()
+    assert (found, found_options) == (files, options)
+    monkeypatch.setattr(sys, 'argv', ['job.py', 'crest', 'missing.xyz'])
+    with pytest.raises(IOError, match='does not exist: missing.xyz'):
+        parse_args()
+
+
+def test_array_one_task_per_folder(modulepath, workdir):
+    from src.job_array import is_array, write_array
+    write_files(workdir, {'conf_1/opt.inp': ORCA.format(4, 3000), 'conf_2/opt.inp': ORCA.format(8, 2000),
+                          'conf_2/opt.xyz': ''})
+    files = ['conf_1/opt.inp', 'conf_2/opt.inp']
+    assert is_array(files) and is_array(files[:1]) and not is_array(['opt.inp'])
+    assert write_array('orca', files, '', {'partition': 'long', 'version': '6.1.1'}, array_choices()) == 'job-array.sh'
+
+    array = (workdir / 'job-array.sh').read_text()
+    # The largest resources among the inputs, a task for each folder
+    for line in ('#SBATCH --job-name=o-calc', '#SBATCH --ntasks=8', '#SBATCH --mem=16000',
+                 '#SBATCH --partition=long', '#SBATCH --array=0-1', '#SBATCH --output=out-%A_%a-%N.slurm',
+                 'JOBS=(conf_1/job-slurm.sh conf_2/job-slurm.sh)'):
+        assert line + '\n' in array
+    assert 'version' not in array
+    # Each folder: its own job, as by job.py alone
+    for folder, cpu in (('conf_1', 4), ('conf_2', 8)):
+        job = (workdir / folder / 'job-slurm.sh').read_text()
+        assert f'#SBATCH --ntasks={cpu}\n' in job and 'module load orca/6.1.1 ||' in job
+        assert 'mkdir qm_all' in job and '.originals\n' in job
+        assert (workdir / folder / 'README.md').exists()
+        subprocess.run(['bash', '-n', str(workdir / folder / 'job-slurm.sh')], check=True)
+    subprocess.run(['bash', '-n', 'job-array.sh'], check=True)
+
+
+def test_array_task_runs_the_job_of_its_folder(modulepath, workdir):
+    from src.job_array import write_array
+    write_files(workdir, {'conf_1/opt.inp': ORCA.format(4, 3000), 'conf 2/opt.inp': ORCA.format(4, 3000)})
+    write_array('orca', ['conf_1/opt.inp', 'conf 2/opt.inp'], '', {}, array_choices())
+    # Instead of the calculation: where it runs, and from where it was submitted
+    (workdir / 'conf 2' / 'job-slurm.sh').write_text('echo "$PWD|$SLURM_SUBMIT_DIR"\n')
+    env = {**os.environ, 'SLURM_ARRAY_TASK_ID': '1', 'SLURM_SUBMIT_DIR': str(workdir)}
+    out = subprocess.run(['bash', 'job-array.sh'], env=env, capture_output=True, text=True, check=True).stdout
+    here, submit = out.strip().split('|')
+    assert os.path.realpath(here) == os.path.realpath(submit) == os.path.realpath(workdir / 'conf 2')
+
+
+def test_array_inputs_of_one_folder_get_a_folder_each(modulepath, workdir):
+    from src.job_array import write_array
+    write_files(workdir, {'a.inp': ORCA.format(4, 3000), 'b.inp': ORCA.format(4, 3000), 'a.xyz': 'geometry of a',
+                          'shared.xyz': 'for both', 'other.inp': 'not in the array', 'README.md': 'old'})
+    write_array('orca', ['a.inp', 'b.inp'], '', {}, array_choices())
+    assert sorted(os.listdir('a')) == ['README.md', 'a.inp', 'a.xyz', 'job-slurm.sh', 'shared.xyz']
+    assert sorted(os.listdir('b')) == ['README.md', 'b.inp', 'job-slurm.sh', 'shared.xyz']
+    assert sorted(os.listdir('.')) == ['README.md', 'a', 'b', 'job-array.sh', 'other.inp', 'shared.xyz']
+    assert (workdir / 'README.md').read_text() == 'old'
+    assert 'JOBS=(a/job-slurm.sh b/job-slurm.sh)' in (workdir / 'job-array.sh').read_text()
+
+
+def test_array_in_the_same_folder(modulepath, workdir):
+    from src.job_array import write_array
+    write_files(workdir, {'a.inp': ORCA.format(4, 3000), 'b.inp': ORCA.format(4, 3000)})
+    write_array('orca', ['a.inp', 'b.inp'], '', {'mail-user': 'me@example.org'}, array_choices(same_folder=True))
+    assert sorted(os.listdir('.')) == ['README-a.md', 'README-b.md', 'a.inp', 'b.inp',
+                                       'job-array.sh', 'job-slurm-a.sh', 'job-slurm-b.sh']
+    assert 'JOBS=(./job-slurm-a.sh ./job-slurm-b.sh)' in (workdir / 'job-array.sh').read_text()
+    job = (workdir / 'job-slurm-a.sh').read_text()
+    # The files of the calculation get its name, and qm_all/ would mix them
+    # update and live get the job id, the other files the name of the calculation
+    for text in ('mkdir .originals-a\n', '$SLURM_SUBMIT_DIR/update-$SLURM_JOB_ID\n', '$SLURM_SUBMIT_DIR/live-$SLURM_JOB_ID\n',
+                 'rm $SLURM_SUBMIT_DIR/update-$SLURM_JOB_ID $SLURM_SUBMIT_DIR/live-$SLURM_JOB_ID',
+                 '>> README-a.md\n', 'me@example.org $SLURM_SUBMIT_DIR/README-a.md $SLURM_JOB_ID'):
+        assert text in job
+    assert 'qm_all' not in job
+    subprocess.run(['bash', '-n', 'job-slurm-a.sh'], check=True)
+
+
+@pytest.mark.parametrize('files, choices, slurm, error', [
+    ({'c/a.inp': '! PAL4\n', 'c/b.inp': ''}, {}, {}, r'c holds other .inp files \(b.inp\): one input per folder'),
+    ({'c/a.inp': '! PAL4\n', 'c/old.out': ''}, {}, {}, r'already present \(c/old.out\)'),
+    ({'a.inp': '! PAL4\n', 'b.inp': '', 'a/x': ''}, {}, {}, 'a already exists'),
+    ({'a.inp': '! PAL4\n', 'b.inp': '', 'old.log': ''}, {}, {}, r'already present \(./old.log\)'),
+    ({'a.inp': '! PAL4\n', 'b.inp': '', 'a.out': ''}, {'same_folder': True}, {}, r'already present \(./a.out\)'),
+    ({'a.inp': '! PAL4\n', 'b.inp': ''}, {}, {'version': '7.0'}, 'Available: 5.0.4, 6.1.1'),
+    ({'a.inp': '! PAL4\n', 'b.inp': ''}, {}, {'array': '0-3'}, 'only the tasks at a time'),
+])
+def test_array_stops_before_moving_or_writing(modulepath, workdir, files, choices, slurm, error):
+    from src.job_array import write_array
+    write_files(workdir, files)
+    before = sorted(str(p.relative_to(workdir)) for p in workdir.rglob('*'))
+    with pytest.raises(ValueError, match=error):
+        write_array('orca', ['a.inp', 'b.inp'] if 'b.inp' in files else ['c/a.inp'], '', slurm, array_choices(**choices))
+    assert sorted(str(p.relative_to(workdir)) for p in workdir.rglob('*')) == before
+
+
+def test_array_options(modulepath, workdir):
+    from src.job_array import write_array
+    write_files(workdir, {'c/a.inp': ORCA.format(4, 3000), 'c/old.out': ''})
+    # Outputs already there are fine with --no-check; at most 2 tasks at a time
+    write_array('orca', ['c/a.inp'], '', {'array': '%2'}, array_choices(check_folder=False, qm_all=False))
+    assert '#SBATCH --array=0-0%2\n' in (workdir / 'job-array.sh').read_text()
+    assert 'qm_all' not in (workdir / 'c' / 'job-slurm.sh').read_text()
+    # A program writing always the same output cannot share the folder
+    write_files(workdir, {'a.xyz': '', 'b.xyz': ''})
+    with pytest.raises(ValueError, match='crest always writes crest.out'):
+        write_array('crest', ['a.xyz', 'b.xyz'], '', {}, array_choices(same_folder=True))
+
+
+def test_same_folder_needs_the_tag_in_the_template(modulepath, workdir, monkeypatch, tmp_path):
+    from src import write_job_file as wjf
+    from src.job_array import write_array
+    template = tmp_path / 'job.sh'
+    template.write_text(open(wjf.DEFAULT_TEMPLATE).read().replace('{job_tag}', ''))
+    monkeypatch.setattr(wjf, 'template_file', lambda: str(template))
+    monkeypatch.setattr('src.job_array.template_file', lambda: str(template))
+    write_files(workdir, {'a.inp': '! PAL4\n', 'b.inp': ''})
+    with pytest.raises(ValueError, match=r'no \{job_tag\}, needed by --same-folder'):
+        write_array('orca', ['a.inp', 'b.inp'], '', {}, array_choices(same_folder=True))
+    assert not (workdir / 'job-slurm-a.sh').exists()
 
 
 def test_programs_are_the_toml_files_of_the_cluster_folder(tmp_path):
@@ -705,6 +849,10 @@ def test_email_subject_has_the_outcome(tmp_path, monkeypatch):
     email_sender.send_mail('me@example.org', str(tmp_path), '124')
     assert 'Subject: Calculation of 123: CALCULATION NOT COMPLETED\n' in sent[0]
     assert 'Subject: Calculation of 124\n' in sent[1]
+    # Several calculations in one folder: the README of one of them
+    (tmp_path / 'README-a.md').write_text('# calc a\n')
+    email_sender.send_mail('me@example.org', str(tmp_path / 'README-a.md'), '125')
+    assert '# calc a\n' in sent[2]
 
 
 def test_interactive_choices(modulepath, monkeypatch):
