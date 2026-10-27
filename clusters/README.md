@@ -135,8 +135,8 @@ left as it is, so the template is plain bash:
 In a job array each calculation has its own `job-slurm.sh`, written from
 this template: the task runs it from the folder of the calculation, with
 `SLURM_SUBMIT_DIR` set to that folder. With `--same-folder` the README of each
-calculation is `README{tag}.md`, and the template removes `README*.md` from the
-scratch (so the copy there never overwrites the one being edited).
+calculation is `README{tag}.md`, and the template does not copy `README*.md`
+to the scratch (so the copy back never overwrites the one being edited).
 
 If a required placeholder is missing, `job.py` stops with a message, e.g.
 `ERROR: /data/slotter/job.sh: missing {email}`: a template without them would

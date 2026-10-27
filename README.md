@@ -207,7 +207,11 @@ has its own (see [`clusters/README.md`](clusters/README.md#job-template)). With
 the default template, in order:
 
 1. creates the scratch folder `<scratch>/slurm-<job id>` on every node of the job;
-2. saves the original inputs in `.originals/` and copies the folder to the scratch;
+2. saves the original inputs in `.originals/` and copies the folder to the
+   scratch with `rsync`: hidden files too (e.g. `.censo2rc`), but not
+   `README.md`, `job-*.sh`, `*.slurm`, `update`, `live`, `.originals` and
+   `qm_all/` of a previous run. If the copy fails (e.g. a full scratch) the
+   job stops at once;
 3. writes two commands in the calculation folder, useful while the job runs:
    - `./live`: follows the output in real time (`tail -f` on the node);
    - `./update`: copies the current output from the node to the folder;

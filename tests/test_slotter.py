@@ -328,6 +328,26 @@ def test_exports_are_set_by_the_program_not_by_the_template(modulepath, workdir,
     assert 'export' not in job and 'ulimit' not in job
 
 
+def test_copy_to_the_scratch(modulepath, workdir, tmp_path):
+    job = make_job('orca', workdir)
+    copy = job[job.index('rsync -a'):job.index('exit 1; }', job.index('rsync -a')) + len('exit 1; }')]
+    write_files(workdir, {name: '' for name in (
+        '.censo2rc', 'update.xyz', 'sub/update', 'sub/README.md',          # inputs, hidden ones too
+        'README.md', 'README-a.md', 'out-1-n.slurm', 'job-array.sh',       # slotter and the job
+        'update', 'live', 'update-12', 'live-12', '.originals/mol.inp', '.originals-a/x', 'qm_all/old.out')})
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    env = {**os.environ, 'SLURM_SUBMIT_DIR': str(workdir), 'SCRATCH_DIR': str(scratch)}
+    subprocess.run(['bash', '-c', copy], env=env, check=True)
+    copied = sorted(str(p.relative_to(scratch)) for p in scratch.rglob('*') if p.is_file())
+    assert copied == ['.censo2rc', 'mol.inp', 'sub/README.md', 'sub/update', 'update.xyz']
+    # A scratch that cannot be written stops the job
+    (tmp_path / 'not-a-folder').write_text('')
+    env['SCRATCH_DIR'] = str(tmp_path / 'not-a-folder' / 'scratch')
+    result = subprocess.run(['bash', '-c', copy], env=env, capture_output=True, text=True)
+    assert result.returncode == 1 and 'ERROR: cannot copy the folder to' in result.stdout
+
+
 def test_start_time_is_taken_when_the_job_runs(modulepath, workdir):
     assert 'echo "Job execution start: $(date ' in make_job('orca', workdir)
 
@@ -343,7 +363,7 @@ def test_qm_all_can_be_turned_off(modulepath, workdir, monkeypatch, where):
         (workdir / 'mol.inp').write_text('! PAL4\n')
         write_job_file('mol.inp', 'orca', 'orca mol.inp', {'ntasks': 4}, qm_all=False)
         job = (workdir / 'job-slurm.sh').read_text()
-    assert 'qm_all' not in job
+    assert 'mkdir qm_all' not in job
     subprocess.run(['bash', '-n', 'job-slurm.sh'], check=True)
 
 
@@ -476,7 +496,7 @@ def test_array_in_the_same_folder(modulepath, workdir):
                  'rm $SLURM_SUBMIT_DIR/update-$SLURM_JOB_ID $SLURM_SUBMIT_DIR/live-$SLURM_JOB_ID',
                  '>> README-a.md\n', 'me@example.org $SLURM_SUBMIT_DIR/README-a.md $SLURM_JOB_ID'):
         assert text in job
-    assert 'qm_all' not in job
+    assert 'mkdir qm_all' not in job
     subprocess.run(['bash', '-n', 'job-slurm-a.sh'], check=True)
 
 
@@ -504,7 +524,7 @@ def test_array_options(modulepath, workdir):
     # Outputs already there are fine with --no-check; at most 2 tasks at a time
     write_array('orca', ['c/a.inp'], '', {'array': '%2'}, array_choices(check_folder=False, qm_all=False))
     assert '#SBATCH --array=0-0%2\n' in (workdir / 'job-array.sh').read_text()
-    assert 'qm_all' not in (workdir / 'c' / 'job-slurm.sh').read_text()
+    assert 'mkdir qm_all' not in (workdir / 'c' / 'job-slurm.sh').read_text()
     # A program writing always the same output cannot share the folder
     write_files(workdir, {'a.xyz': '', 'b.xyz': ''})
     with pytest.raises(ValueError, match='crest always writes crest.out'):

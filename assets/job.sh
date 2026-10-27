@@ -35,18 +35,20 @@ rm -f .originals{tag}/README*.md .originals{tag}/*slurm .originals{tag}/*sh
 
 
 ## COPYING THE FILES OF THE DIRECTORY IN THE SCRATCH
-cp -v -r $SLURM_SUBMIT_DIR/* $SCRATCH_DIR
+# Hidden files too (e.g. .censo2rc), not the files of slotter, of the job or
+# of previous runs
+rsync -a --exclude='/.originals*' --exclude='/qm_all/' --exclude='/README*.md' \
+      --exclude='/*.slurm' --exclude='/job-*.sh' \
+      --exclude='/update' --exclude='/live' --exclude='/update-*' --exclude='/live-*' \
+      "$SLURM_SUBMIT_DIR"/ "$SCRATCH_DIR"/ || { echo "ERROR: cannot copy the folder to $SCRATCH_DIR"; exit 1; }
+# README.md is not copied, so the copy back never overwrites the one being edited
+cd "$SCRATCH_DIR" || { echo "ERROR: cannot enter $SCRATCH_DIR"; exit 1; }
 
 
 echo "scp $SLURMD_NODENAME:$SCRATCH_DIR/{output} $SLURM_SUBMIT_DIR" > $SLURM_SUBMIT_DIR/update{job_tag}
 echo "ssh $SLURMD_NODENAME tail -f -n 1000 $SCRATCH_DIR/{output}" > $SLURM_SUBMIT_DIR/live{job_tag}
 # echo "ssh $SLURMD_NODENAME cat $SCRATCH_DIR/{output} | less " > $SLURM_SUBMIT_DIR/list
 chmod ug+x $SLURM_SUBMIT_DIR/update{job_tag} $SLURM_SUBMIT_DIR/live{job_tag} # $SLURM_SUBMIT_DIR/list
-
-cd $SCRATCH_DIR
-# Not copied back: the README.md can be edited while the job runs, and
-# update/live of the calculations sharing the folder are removed by their own job
-rm -f README*.md update live update-* live-*
 
 # LOADING MODULES
 
